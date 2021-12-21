@@ -53,8 +53,9 @@
     const char trackStartatPos[] PROGMEM = "Starting track at position";
     const char waitingForTaskQueues[] PROGMEM = "Task Queue for RFID does not exist yet, waiting...";
     const char rfidScannerReady[] PROGMEM = "RFID-tags can now be applied...";
+    const char rfidScannerConnectionError[] PROGMEM = "Communication with RFID reader failed.";
     const char rfidTagDetected[] PROGMEM = "RFID-tag detected: ";
-    const char rfid15693TagDetected[] PROGMEM = "RFID-ta (ISO-15693) detected: ";
+    const char rfid15693TagDetected[] PROGMEM = "RFID-tag (ISO-15693) detected: ";
     const char rfidTagReceived[] PROGMEM = "RFID-tag received";
     const char rfidTagUnknownInNvs[] PROGMEM = "RFID-tag is unkown to NVS.";
     const char goToSleepDueToIdle[] PROGMEM = "Going to deepsleep due to inactivity-timer...";

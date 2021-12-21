@@ -41,7 +41,12 @@
             mfrc522.PCD_Init();
             mfrc522.PCD_SetAntennaGain(rfidGain);
             delay(50);
-            Log_Println((char *) FPSTR(rfidScannerReady), LOGLEVEL_DEBUG);
+            uint8_t version = mfrc522.PCD_ReadRegister(MFRC522::VersionReg);
+            if (version != 0x00 && version != 0xff) {
+                Log_Println((char *) FPSTR(rfidScannerReady), LOGLEVEL_DEBUG);
+            } else {
+                Log_Println((char *) FPSTR(rfidScannerConnectionError), LOGLEVEL_ERROR);
+            }
 
             xTaskCreatePinnedToCore(
                 Rfid_Task,              /* Function to implement the task */

@@ -5,56 +5,39 @@
 #include "Cmd.h"
 #include "Port.h"
 #include "System.h"
+#include "values.h"
+#include <stdint.h>
 
 bool gButtonInitComplete = false;
 
 // Only enable those buttons that are not disabled (99 or >115)
 // 0 -> 39: GPIOs
 // 100 -> 115: Port-expander
-#if (NEXT_BUTTON >= 0 && NEXT_BUTTON <= MAX_GPIO)
-	#define BUTTON_0_ENABLE
-#elif (NEXT_BUTTON >= 100 && NEXT_BUTTON <= 115)
-	#define EXPANDER_0_ENABLE
-#endif
-#if (PREVIOUS_BUTTON >= 0 && PREVIOUS_BUTTON <= MAX_GPIO)
-	#define BUTTON_1_ENABLE
-#elif (PREVIOUS_BUTTON >= 100 && PREVIOUS_BUTTON <= 115)
-	#define EXPANDER_1_ENABLE
-#endif
-#if (PAUSEPLAY_BUTTON >= 0 && PAUSEPLAY_BUTTON <= MAX_GPIO)
-	#define BUTTON_2_ENABLE
-#elif (PAUSEPLAY_BUTTON >= 100 && PAUSEPLAY_BUTTON <= 115)
-	#define EXPANDER_2_ENABLE
-#endif
-#if (ROTARYENCODER_BUTTON >= 0 && ROTARYENCODER_BUTTON <= MAX_GPIO)
-	#define BUTTON_3_ENABLE
-#elif (ROTARYENCODER_BUTTON >= 100 && ROTARYENCODER_BUTTON <= 115)
-	#define EXPANDER_3_ENABLE
-#endif
-#if (BUTTON_4 >= 0 && BUTTON_4 <= MAX_GPIO)
-	#define BUTTON_4_ENABLE
-#elif (BUTTON_4 >= 100 && BUTTON_4 <= 115)
-	#define EXPANDER_4_ENABLE
-#endif
-#if (BUTTON_5 >= 0 && BUTTON_5 <= MAX_GPIO)
-	#define BUTTON_5_ENABLE
-#elif (BUTTON_5 >= 100 && BUTTON_5 <= 115)
-	#define EXPANDER_5_ENABLE
-#endif
-
 t_button gButtons[7];         // next + prev + pplay + rotEnc + button4 + button5 + dummy-button
 uint8_t gShutdownButton = 99; // Helper used for Neopixel: stores button-number of shutdown-button
 uint16_t gLongPressTime = 0;
-
-#ifdef PORT_EXPANDER_ENABLE
-	extern bool Port_AllowReadFromPortExpander;
-#endif
 
 static volatile SemaphoreHandle_t Button_TimerSemaphore;
 
 hw_timer_t *Button_Timer = NULL;
 static void IRAM_ATTR onTimer();
 static void Button_DoButtonActions(void);
+
+static const int32_t ButtonPins[] = {
+	NEXT_BUTTON, PREVIOUS_BUTTON, PAUSEPLAY_BUTTON, ROTARYENCODER_BUTTON, BUTTON_4, BUTTON_5
+};
+
+static const uint32_t ButtonShortActions[] = {
+	BUTTON_0_SHORT, BUTTON_1_SHORT, BUTTON_2_SHORT, BUTTON_3_SHORT, BUTTON_4_SHORT, BUTTON_5_SHORT
+};
+
+static const uint32_t ButtonLongActions[] = {
+	BUTTON_0_LONG, BUTTON_1_LONG, BUTTON_2_LONG, BUTTON_3_LONG, BUTTON_4_LONG, BUTTON_5_LONG
+};
+#define NUM_BUTTONS (sizeof(ButtonPins)/sizeof(ButtonPins[0]))
+
+static_assert(NUM_BUTTONS == sizeof(ButtonShortActions)/sizeof(ButtonShortActions[0]), "ButtonShortActions must be same length as ButtonPins");
+static_assert(NUM_BUTTONS == sizeof(ButtonLongActions)/sizeof(ButtonLongActions[0]), "ButtonLongActions must be same length as ButtonPins");
 
 void Button_Init() {
 	#if (WAKEUP_BUTTON >= 0 && WAKEUP_BUTTON <= MAX_GPIO)
@@ -64,58 +47,18 @@ void Button_Init() {
 		}
 	#endif
 
-	#ifdef NEOPIXEL_ENABLE // Try to find button that is used for shutdown via longpress-action (only necessary for Neopixel)
-		#if defined(BUTTON_0_ENABLE) || defined(EXPANDER_0_ENABLE)
-			#if (BUTTON_0_LONG == CMD_SLEEPMODE)
-				gShutdownButton = 0;
-			#endif
-		#endif
-		#if defined(BUTTON_1_ENABLE) || defined(EXPANDER_1_ENABLE)
-			#if (BUTTON_1_LONG == CMD_SLEEPMODE)
-				gShutdownButton = 1;
-			#endif
-		#endif
-		#if defined(BUTTON_2_ENABLE) || defined(EXPANDER_2_ENABLE)
-			#if (BUTTON_2_LONG == CMD_SLEEPMODE)
-				gShutdownButton = 2;
-			#endif
-		#endif
-		#if defined(BUTTON_3_ENABLE) || defined(EXPANDER_3_ENABLE)
-			#if (BUTTON_3_LONG == CMD_SLEEPMODE)
-				gShutdownButton = 3;
-			#endif
-		#endif
-		#if defined(BUTTON_4_ENABLE) || defined(EXPANDER_4_ENABLE)
-			#if (BUTTON_4_LONG == CMD_SLEEPMODE)
-				gShutdownButton = 4;
-			#endif
-		#endif
-		#if defined(BUTTON_5_ENABLE) || defined(EXPANDER_5_ENABLE)
-			#if (BUTTON_5_LONG == CMD_SLEEPMODE)
-				gShutdownButton = 5;
-			#endif
-		#endif
-	#endif
-
 	// Activate internal pullups for all enabled buttons connected to GPIOs
-	#ifdef BUTTON_0_ENABLE
-		pinMode(NEXT_BUTTON, INPUT_PULLUP);
-	#endif
-	#ifdef BUTTON_1_ENABLE
-		pinMode(PREVIOUS_BUTTON, INPUT_PULLUP);
-	#endif
-	#ifdef BUTTON_2_ENABLE
-		pinMode(PAUSEPLAY_BUTTON, INPUT_PULLUP);
-	#endif
-	#ifdef BUTTON_3_ENABLE
-		pinMode(ROTARYENCODER_BUTTON, INPUT_PULLUP);
-	#endif
-	#ifdef BUTTON_4_ENABLE
-		pinMode(BUTTON_4, INPUT_PULLUP);
-	#endif
-	#ifdef BUTTON_5_ENABLE
-		pinMode(BUTTON_5, INPUT_PULLUP);
-	#endif
+	for (uint32_t i = 0; i < NUM_BUTTONS; i++)
+	{
+		#ifdef NEOPIXEL_ENABLE // Try to find button that is used for shutdown via longpress-action (only necessary for Neopixel)
+			if (isValidPin(ButtonPins[i]) && ButtonLongActions[i] == CMD_SLEEPMODE) {
+				gShutdownButton = i;
+			}
+		#endif
+		if (isGPIO(ButtonPins[i])) {
+			pinMode(ButtonPins[i], INPUT_PULLUP);
+		}
+	}
 
 	// Create 1000Hz-HW-Timer (currently only used for buttons)
 	Button_TimerSemaphore = xSemaphoreCreateBinary();
@@ -139,24 +82,15 @@ void Button_Cyclic() {
 
 		// Buttons can be mixed between GPIO and port-expander.
 		// But at the same time only one of them can be for example NEXT_BUTTON
-		#if defined(BUTTON_0_ENABLE) || defined(EXPANDER_0_ENABLE)
-				gButtons[0].currentState = Port_Read(NEXT_BUTTON);
-		#endif
-		#if defined(BUTTON_1_ENABLE) || defined(EXPANDER_1_ENABLE)
-				gButtons[1].currentState = Port_Read(PREVIOUS_BUTTON);
-		#endif
-		#if defined(BUTTON_2_ENABLE) || defined(EXPANDER_2_ENABLE)
-				gButtons[2].currentState = Port_Read(PAUSEPLAY_BUTTON);
-		#endif
-		#if defined(BUTTON_3_ENABLE) || defined(EXPANDER_3_ENABLE)
-				gButtons[3].currentState = Port_Read(ROTARYENCODER_BUTTON);
-		#endif
-		#if defined(BUTTON_4_ENABLE) || defined(EXPANDER_4_ENABLE)
-				gButtons[4].currentState = Port_Read(BUTTON_4);
-		#endif
-		#if defined(BUTTON_5_ENABLE) || defined(EXPANDER_5_ENABLE)
-				gButtons[5].currentState = Port_Read(BUTTON_5);
-		#endif
+		for (uint32_t i = 0; i < NUM_BUTTONS; i++)
+		{
+			// Invalid pin numbers are always reported as not pressed by Port_Read
+			gButtons[i].currentState = Port_Read(ButtonPins[i]);
+		}
+
+		snprintf(Log_Buffer, Log_BufferLength, "%d %d %d %d", gButtons[0].currentState, gButtons[1].currentState, gButtons[2].currentState, gButtons[3].currentState);
+			Log_Println(Log_Buffer, LOGLEVEL_DEBUG);
+
 
 		// Iterate over all buttons in struct-array
 		for (uint8_t i = 0; i < sizeof(gButtons) / sizeof(gButtons[0]); i++) {
@@ -181,7 +115,7 @@ void Button_Cyclic() {
 }
 
 // Do corresponding actions for all buttons
-void Button_DoButtonActions(void) {
+void Button_DoButtonActions() {
 	if (gButtons[0].isPressed && gButtons[1].isPressed) {
 		gButtons[0].isPressed = false;
 		gButtons[1].isPressed = false;
@@ -245,44 +179,10 @@ void Button_DoButtonActions(void) {
 	} else {
 		for (uint8_t i = 0; i <= 5; i++) {
 			if (gButtons[i].isPressed) {
-				uint8_t Cmd_Short = 0;
-				uint8_t Cmd_Long = 0;
-
-				switch (i) { // Long-press-actions
-					case 0:
-						Cmd_Short = BUTTON_0_SHORT;
-						Cmd_Long = BUTTON_0_LONG;
-						break;
-
-					case 1:
-						Cmd_Short = BUTTON_1_SHORT;
-						Cmd_Long = BUTTON_1_LONG;
-						break;
-
-					case 2:
-						Cmd_Short = BUTTON_2_SHORT;
-						Cmd_Long = BUTTON_2_LONG;
-						break;
-
-					case 3:
-						Cmd_Short = BUTTON_3_SHORT;
-						Cmd_Long = BUTTON_3_LONG;
-						break;
-
-					case 4:
-						Cmd_Short = BUTTON_4_SHORT;
-						Cmd_Long = BUTTON_4_LONG;
-						break;
-
-					case 5:
-						Cmd_Short = BUTTON_5_SHORT;
-						Cmd_Long = BUTTON_5_LONG;
-						break;
-				}
-
+				uint8_t Cmd_Long = ButtonLongActions[i];
 				if (gButtons[i].lastReleasedTimestamp > gButtons[i].lastPressedTimestamp) {
 					if (gButtons[i].lastReleasedTimestamp - gButtons[i].lastPressedTimestamp < intervalToLongPress) {
-						Cmd_Action(Cmd_Short);
+						Cmd_Action(ButtonShortActions[i]);
 					} else {
 						// if not volume buttons than start action after button release
 						if (Cmd_Long != CMD_VOLUMEUP && Cmd_Long != CMD_VOLUMEDOWN) {

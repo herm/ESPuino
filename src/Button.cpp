@@ -34,10 +34,20 @@ static const uint32_t ButtonShortActions[] = {
 static const uint32_t ButtonLongActions[] = {
 	BUTTON_0_LONG, BUTTON_1_LONG, BUTTON_2_LONG, BUTTON_3_LONG, BUTTON_4_LONG, BUTTON_5_LONG
 };
+
+static const uint32_t ButtonMultiActions[] = {
+BUTTON_MULTI_01, BUTTON_MULTI_02, BUTTON_MULTI_03, BUTTON_MULTI_04, BUTTON_MULTI_05,
+                 BUTTON_MULTI_12, BUTTON_MULTI_13, BUTTON_MULTI_14, BUTTON_MULTI_15,
+                                  BUTTON_MULTI_23, BUTTON_MULTI_24, BUTTON_MULTI_25,
+                                                   BUTTON_MULTI_34, BUTTON_MULTI_35,
+                                                                    BUTTON_MULTI_45
+};
+
 #define NUM_BUTTONS (sizeof(ButtonPins)/sizeof(ButtonPins[0]))
 
 static_assert(NUM_BUTTONS == sizeof(ButtonShortActions)/sizeof(ButtonShortActions[0]), "ButtonShortActions must be same length as ButtonPins");
 static_assert(NUM_BUTTONS == sizeof(ButtonLongActions)/sizeof(ButtonLongActions[0]), "ButtonLongActions must be same length as ButtonPins");
+static_assert((NUM_BUTTONS * (NUM_BUTTONS - 1)) / 2 == sizeof(ButtonMultiActions)/sizeof(ButtonMultiActions[0]), "ButtonMultiActions must contain all permutations");
 
 void Button_Init() {
 	#if (WAKEUP_BUTTON >= 0 && WAKEUP_BUTTON <= MAX_GPIO)
@@ -116,97 +126,47 @@ void Button_Cyclic() {
 
 // Do corresponding actions for all buttons
 void Button_DoButtonActions() {
-	if (gButtons[0].isPressed && gButtons[1].isPressed) {
-		gButtons[0].isPressed = false;
-		gButtons[1].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_01);
-	} else if (gButtons[0].isPressed && gButtons[2].isPressed) {
-		gButtons[0].isPressed = false;
-		gButtons[2].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_02);
-	} else if (gButtons[0].isPressed && gButtons[3].isPressed) {
-		gButtons[0].isPressed = false;
-		gButtons[3].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_03);
-	} else if (gButtons[0].isPressed && gButtons[4].isPressed) {
-		gButtons[0].isPressed = false;
-		gButtons[4].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_04);
-	} else if (gButtons[0].isPressed && gButtons[5].isPressed) {
-		gButtons[0].isPressed = false;
-		gButtons[5].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_05);
-	} else if (gButtons[1].isPressed && gButtons[2].isPressed) {
-		gButtons[1].isPressed = false;
-		gButtons[2].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_12);
-	} else if (gButtons[1].isPressed && gButtons[3].isPressed) {
-		gButtons[1].isPressed = false;
-		gButtons[3].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_13);
-	} else if (gButtons[1].isPressed && gButtons[4].isPressed) {
-		gButtons[1].isPressed = false;
-		gButtons[4].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_14);
-	} else if (gButtons[1].isPressed && gButtons[5].isPressed) {
-		gButtons[1].isPressed = false;
-		gButtons[5].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_15);
-	} else if (gButtons[2].isPressed && gButtons[3].isPressed) {
-		gButtons[2].isPressed = false;
-		gButtons[3].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_23);
-	} else if (gButtons[2].isPressed && gButtons[4].isPressed) {
-		gButtons[2].isPressed = false;
-		gButtons[4].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_24);
-	} else if (gButtons[2].isPressed && gButtons[5].isPressed) {
-		gButtons[2].isPressed = false;
-		gButtons[5].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_25);
-	} else if (gButtons[3].isPressed && gButtons[4].isPressed) {
-		gButtons[3].isPressed = false;
-		gButtons[4].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_34);
-	} else if (gButtons[3].isPressed && gButtons[5].isPressed) {
-		gButtons[3].isPressed = false;
-		gButtons[5].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_35);
-	} else if (gButtons[4].isPressed && gButtons[5].isPressed) {
-		gButtons[4].isPressed = false;
-		gButtons[5].isPressed = false;
-		Cmd_Action(BUTTON_MULTI_45);
-	} else {
-		for (uint8_t i = 0; i <= 5; i++) {
-			if (gButtons[i].isPressed) {
-				uint8_t Cmd_Long = ButtonLongActions[i];
-				if (gButtons[i].lastReleasedTimestamp > gButtons[i].lastPressedTimestamp) {
-					if (gButtons[i].lastReleasedTimestamp - gButtons[i].lastPressedTimestamp < intervalToLongPress) {
-						Cmd_Action(ButtonShortActions[i]);
-					} else {
-						// if not volume buttons than start action after button release
-						if (Cmd_Long != CMD_VOLUMEUP && Cmd_Long != CMD_VOLUMEDOWN) {
-							Cmd_Action(Cmd_Long);
-						}
+	uint32_t actionIndex = 0;
+	for (uint32_t firstButton = 0; firstButton < NUM_BUTTONS; firstButton++) {
+		for (uint32_t secondButton = firstButton + 1; secondButton < NUM_BUTTONS; secondButton++) {
+			if (gButtons[firstButton].isPressed && gButtons[secondButton].isPressed) {
+				gButtons[firstButton].isPressed = false;
+				gButtons[secondButton].isPressed = false;
+				Cmd_Action(ButtonMultiActions[actionIndex]);
+				return; // Stop processing after first action
+			}
+			actionIndex++;
+		}
+	}
+	for (uint8_t i = 0; i <= NUM_BUTTONS; i++) {
+		if (gButtons[i].isPressed) {
+			uint8_t Cmd_Long = ButtonLongActions[i];
+			if (gButtons[i].lastReleasedTimestamp > gButtons[i].lastPressedTimestamp) {
+				if (gButtons[i].lastReleasedTimestamp - gButtons[i].lastPressedTimestamp < intervalToLongPress) {
+					Cmd_Action(ButtonShortActions[i]);
+				} else {
+					// if not volume buttons than start action after button release
+					if (Cmd_Long != CMD_VOLUMEUP && Cmd_Long != CMD_VOLUMEDOWN) {
+						Cmd_Action(Cmd_Long);
+					}
+				}
+
+				gButtons[i].isPressed = false;
+			} else if (Cmd_Long == CMD_VOLUMEUP || Cmd_Long == CMD_VOLUMEDOWN) {
+				unsigned long currentTimestamp = millis();
+
+				// only start action if intervalToLongPress has been reached
+				if (currentTimestamp - gButtons[i].lastPressedTimestamp > intervalToLongPress) {
+
+					// calculate remainder
+					uint16_t remainder = (currentTimestamp - gButtons[i].lastPressedTimestamp) % intervalToLongPress;
+
+					// trigger action if remainder rolled over
+					if (remainder < gLongPressTime) {
+						Cmd_Action(Cmd_Long);
 					}
 
-					gButtons[i].isPressed = false;
-				} else if (Cmd_Long == CMD_VOLUMEUP || Cmd_Long == CMD_VOLUMEDOWN) {
-					unsigned long currentTimestamp = millis();
-
-					// only start action if intervalToLongPress has been reached
-					if (currentTimestamp - gButtons[i].lastPressedTimestamp > intervalToLongPress) {
-
-						// calculate remainder
-						uint16_t remainder = (currentTimestamp - gButtons[i].lastPressedTimestamp) % intervalToLongPress;
-
-						// trigger action if remainder rolled over
-						if (remainder < gLongPressTime) {
-							Cmd_Action(Cmd_Long);
-						}
-
-						gLongPressTime = remainder;
-					}
+					gLongPressTime = remainder;
 				}
 			}
 		}
